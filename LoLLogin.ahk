@@ -15,6 +15,7 @@ RIOT_CLIENT    := "C:\Riot Games\Riot Client\RiotClientServices.exe"
 LAUNCH_ARGS    := "--launch-product=league_of_legends --launch-patchline=live --allow-direct-launch"
 LOGIN_DELAY_MS := 3000                   ; wait for login form to render; raise if typing starts too early
 CRED_PREFIX    := "AHK_LoL_"
+LEAGUE_TIMEOUT_S := 120                  ; how long to wait for the League client before giving up on closing Riot Client
 
 GroupAdd("RiotLogin", "ahk_exe Riot Client.exe")   ; current client
 GroupAdd("RiotLogin", "ahk_exe RiotClientUx.exe")  ; older client
@@ -125,6 +126,20 @@ LaunchAndLogin(username, password) {
     SendText(password)
     Sleep(150)
     Send("{Enter}")
+
+    CloseRiotClientWhenLeagueStarts()
+}
+
+; Riot Client's window isn't needed once League's client is up. Only the UI
+; processes are closed; RiotClientServices.exe keeps running because League needs it.
+CloseRiotClientWhenLeagueStarts() {
+    if !WinWait("ahk_exe LeagueClientUx.exe", , LEAGUE_TIMEOUT_S)
+        return  ; League didn't open (e.g. wrong password) - leave Riot Client up
+    Sleep(5000)  ; let League finish its handoff before pulling the Riot Client UI
+    for exe in ["Riot Client.exe", "RiotClientUx.exe"]
+        while ProcessExist(exe)
+            if !ProcessClose(exe)
+                break
 }
 
 SortArray(arr) {
