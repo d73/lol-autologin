@@ -6,11 +6,11 @@
 ;   - Pick a profile -> launches Riot Client for LoL -> types username/password
 ;   - Credentials are stored in Windows Credential Manager (not in this file),
 ;     so nothing sensitive gets synced to Google Drive / GitHub.
-;   - First time you pick a profile you'll be asked for its username/password.
-;   - Right-click a profile button to change its saved credentials.
+;   - The profile list is read from Credential Manager; each profile is a Riot
+;     username. Use "+ Add account" to add one.
+;   - Right-click a profile to change its password or remove it.
 ; ============================================================================
 
-PROFILES       := ["gotutl", "noultyet"]     ; display names (rename as you like)
 RIOT_CLIENT    := "C:\Riot Games\Riot Client\RiotClientServices.exe"
 LAUNCH_ARGS    := "--launch-product=league_of_legends --launch-patchline=live --allow-direct-launch"
 LOGIN_DELAY_MS := 3000                   ; wait for login form to render; raise if typing starts too early
@@ -24,23 +24,61 @@ ShowPicker()
 ShowPicker() {
     picker := Gui("+AlwaysOnTop -MinimizeBox", "League of Legends")
     picker.SetFont("s11", "Segoe UI")
-    picker.AddText("w220 Center", "Choose a profile")
-    for name in PROFILES {
+    profiles := ListProfiles()
+    picker.AddText("w220 Center", profiles.Length ? "Choose a profile" : "No accounts saved yet")
+    for name in profiles {
         btn := picker.AddButton("w220 h40", name)
         btn.OnEvent("Click", PickProfile.Bind(picker, name))
-        btn.OnEvent("ContextMenu", (ctrl, *) => PromptCredentials(ctrl.Text))
+        btn.OnEvent("ContextMenu", ShowProfileMenu.Bind(picker, name))
     }
+    picker.AddButton("w220 h30", "+ Add account").OnEvent("Click", (*) => AddAccount(picker))
     picker.SetFont("s8 cGray")
-    picker.AddText("w220 Center", "Right-click a profile to edit its login")
+    picker.AddText("w220 Center", "Right-click a profile to change password or remove")
     picker.OnEvent("Close", (*) => ExitApp())
     picker.OnEvent("Escape", (*) => ExitApp())
     picker.Show()
 }
 
+; Rebuild the picker after the profile list changes
+RefreshPicker(picker) {
+    picker.Destroy()
+    ShowPicker()
+}
+
+ListProfiles() {
+    profiles := []
+    for target in CredList(CRED_PREFIX "*")
+        profiles.Push(SubStr(target, StrLen(CRED_PREFIX) + 1))
+    return SortArray(profiles)
+}
+
+ShowProfileMenu(picker, name, *) {
+    ; +OwnDialogs keeps prompts above the always-on-top picker; it's per-thread,
+    ; so it has to be set inside each menu callback
+    m := Menu()
+    m.Add("Change password", (*) => (picker.Opt("+OwnDialogs"), PromptPassword(name)))
+    m.Add("Remove account", (*) => (picker.Opt("+OwnDialogs"), RemoveAccount(picker, name)))
+    m.Show()
+}
+
+AddAccount(picker) {
+    picker.Opt("+OwnDialogs")
+    user := InputBox("Riot username:", "LoL Login", "w300 h120")
+    if user.Result != "OK" || (name := Trim(user.Value)) = ""
+        return
+    if PromptPassword(name)
+        RefreshPicker(picker)
+}
+
+RemoveAccount(picker, name) {
+    if MsgBox("Remove '" name "' and its saved password?", "LoL Login", "YesNo Icon?") != "Yes"
+        return
+    DllCall("Advapi32.dll\CredDeleteW", "Str", CRED_PREFIX name, "UInt", 1, "UInt", 0, "Int")
+    RefreshPicker(picker)
+}
+
 PickProfile(picker, name, *) {
     cred := CredRead(CRED_PREFIX name)
-    if !cred
-        cred := PromptCredentials(name)
     if !cred
         return
     picker.Destroy()
@@ -48,18 +86,17 @@ PickProfile(picker, name, *) {
     ExitApp()
 }
 
-PromptCredentials(name) {
-    user := InputBox("Riot username for '" name "':", "LoL Login", "w300 h120")
-    if user.Result != "OK" || user.Value = ""
-        return
-    pass := InputBox("Password for '" user.Value "':", "LoL Login", "Password w300 h120")
+; Profile name is the Riot username, so only the password is asked for
+PromptPassword(username) {
+    pass := InputBox("Password for '" username "':", "LoL Login", "Password w300 h120")
     if pass.Result != "OK" || pass.Value = ""
         return
-    if !CredWrite(CRED_PREFIX name, user.Value, pass.Value) {
-        MsgBox("Failed to save credentials to Windows Credential Manager.", "LoL Login", "Icon!")
+    if !CredWrite(CRED_PREFIX username, username, pass.Value) {
+        MsgBox("Failed to save password to Windows Credential Manager.", "LoL Login", "Icon!")
         return
     }
-    return {username: user.Value, password: pass.Value}
+    MsgBox("Password saved for '" username "'.", "LoL Login", "Iconi T2")
+    return {username: username, password: pass.Value}
 }
 
 LaunchAndLogin(username, password) {
@@ -90,6 +127,15 @@ LaunchAndLogin(username, password) {
     Send("{Enter}")
 }
 
+SortArray(arr) {
+    if arr.Length < 2
+        return arr
+    joined := ""
+    for item in arr
+        joined .= item "`n"
+    return StrSplit(Sort(RTrim(joined, "`n")), "`n")
+}
+
 ; ---------------------------------------------------------------------------
 ; Windows Credential Manager helpers (CRED_TYPE_GENERIC)
 ; View/delete entries in: Control Panel > Credential Manager > Windows Credentials
@@ -114,4 +160,17 @@ CredRead(target) {
     password := StrGet(NumGet(pCred, 16 + A_PtrSize * 3, "Ptr"), blobSize // 2, "UTF-16")
     DllCall("Advapi32.dll\CredFree", "Ptr", pCred)
     return {username: username, password: password}
+}
+
+; Returns the TargetNames of all credentials matching filter (e.g. "AHK_LoL_*")
+CredList(filter) {
+    targets := [], count := 0, pCreds := 0
+    if !DllCall("Advapi32.dll\CredEnumerateW", "Str", filter, "UInt", 0, "UInt*", &count, "Ptr*", &pCreds, "Int")
+        return targets
+    loop count {
+        pCred := NumGet(pCreds, (A_Index - 1) * A_PtrSize, "Ptr")
+        targets.Push(StrGet(NumGet(pCred, 8, "Ptr"), "UTF-16"))
+    }
+    DllCall("Advapi32.dll\CredFree", "Ptr", pCreds)
+    return targets
 }
