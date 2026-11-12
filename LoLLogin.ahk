@@ -1,5 +1,7 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#Include LoginInput.ahk
+#Include LauncherOptions.ahk
 
 ; ============================================================================
 ; League of Legends profile picker + auto-login
@@ -16,6 +18,7 @@ LAUNCH_ARGS    := "--launch-product=league_of_legends --launch-patchline=live --
 LOGIN_DELAY_MS := 3000                   ; wait for login form to render; raise if typing starts too early
 CRED_PREFIX    := "AHK_LoL_"
 LEAGUE_TIMEOUT_S := 120                  ; how long to wait for the League client before giving up on closing Riot Client
+SETTINGS_FILE := A_AppData "\LoLLogin\settings.ini"
 
 GroupAdd("RiotLogin", "ahk_exe Riot Client.exe")   ; current client
 GroupAdd("RiotLogin", "ahk_exe RiotClientUx.exe")  ; older client
@@ -33,11 +36,22 @@ ShowPicker() {
         btn.OnEvent("ContextMenu", ShowProfileMenu.Bind(picker, name))
     }
     picker.AddButton("w220 h30", "+ Add account").OnEvent("Click", (*) => AddAccount(picker))
+    closeRiot := picker.AddCheckBox("vCloseRiot w220 Checked" ReadCloseRiotOption(SETTINGS_FILE), "Close Riot Launcher afterwards")
+    closeRiot.OnEvent("Click", SaveCloseRiotOption)
     picker.SetFont("s8 cGray")
     picker.AddText("w220 Center", "Right-click a profile to change password or remove")
     picker.OnEvent("Close", (*) => ExitApp())
     picker.OnEvent("Escape", (*) => ExitApp())
     picker.Show()
+}
+
+SaveCloseRiotOption(control, *) {
+    try WriteCloseRiotOption(SETTINGS_FILE, control.Value)
+    catch {
+        control.Value := !control.Value
+        control.Gui.Opt("+OwnDialogs")
+        MsgBox("Could not save the launcher option. Your previous choice is unchanged.", "LoL Login", "Icon!")
+    }
 }
 
 ; Rebuild the picker after the profile list changes
@@ -82,8 +96,9 @@ PickProfile(picker, name, *) {
     cred := CredRead(CRED_PREFIX name)
     if !cred
         return
+    closeRiot := picker["CloseRiot"].Value
     picker.Destroy()
-    LaunchAndLogin(cred.username, cred.password)
+    LaunchAndLogin(cred.username, cred.password, closeRiot)
     ExitApp()
 }
 
@@ -100,7 +115,7 @@ PromptPassword(username) {
     return {username: username, password: pass.Value}
 }
 
-LaunchAndLogin(username, password) {
+LaunchAndLogin(username, password, closeRiot := true) {
     if !FileExist(RIOT_CLIENT) {
         MsgBox("Riot Client not found at:`n" RIOT_CLIENT "`n`nEdit RIOT_CLIENT at the top of the script.", "LoL Login", "Icon!")
         return
@@ -108,38 +123,22 @@ LaunchAndLogin(username, password) {
 
     Run('"' RIOT_CLIENT '" ' LAUNCH_ARGS)
 
-    if !WinWait("ahk_group RiotLogin", , 60) {
+    riotHwnd := WinWait("ahk_group RiotLogin", , 60)
+    if !riotHwnd {
         MsgBox("Riot Client window didn't appear within 60s.", "LoL Login", "Icon!")
         return
     }
     Sleep(LOGIN_DELAY_MS)
-    WinActivate("ahk_group RiotLogin")
-    if !WinWaitActive("ahk_group RiotLogin", , 5)
+    try {
+        riotHwnd := ActivateRiotLoginWindow()
+        SendLoginCredentials(riotHwnd, username, password)
+    } catch as err {
+        detail := err is LoginInputError ? err.Message : "The Riot Client window could not be activated (" Type(err) ")."
+        MsgBox("Auto-login stopped.`n`n" detail "`n`nSelect your profile again when the login screen is ready.", "LoL Login", "Icon!")
         return
+    }
 
-    ; Username field has focus when the login screen opens
-    Send("^a")
-    SendText(username)
-    Sleep(150)
-    Send("{Tab}")
-    Sleep(150)
-    SendText(password)
-    Sleep(150)
-    Send("{Enter}")
-
-    CloseRiotClientWhenLeagueStarts()
-}
-
-; Riot Client's window isn't needed once League's client is up. Only the UI
-; processes are closed; RiotClientServices.exe keeps running because League needs it.
-CloseRiotClientWhenLeagueStarts() {
-    if !WinWait("ahk_exe LeagueClientUx.exe", , LEAGUE_TIMEOUT_S)
-        return  ; League didn't open (e.g. wrong password) - leave Riot Client up
-    Sleep(5000)  ; let League finish its handoff before pulling the Riot Client UI
-    for exe in ["Riot Client.exe", "RiotClientUx.exe"]
-        while ProcessExist(exe)
-            if !ProcessClose(exe)
-                break
+    CloseRiotClientWhenLeagueStarts(closeRiot, LEAGUE_TIMEOUT_S)
 }
 
 SortArray(arr) {
