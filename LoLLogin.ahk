@@ -36,7 +36,7 @@ ShowPicker() {
         btn.OnEvent("ContextMenu", ShowProfileMenu.Bind(picker, name))
     }
     picker.AddButton("w220 h30", "+ Add account").OnEvent("Click", (*) => AddAccount(picker))
-    closeRiot := picker.AddCheckBox("vCloseRiot w220 Checked" ReadCloseRiotOption(SETTINGS_FILE), "Close Riot launcher after League opens")
+    closeRiot := picker.AddCheckBox("vCloseRiot w220 Checked" ReadCloseRiotOption(SETTINGS_FILE), "Close Riot Launcher afterwards")
     closeRiot.OnEvent("Click", SaveCloseRiotOption)
     picker.SetFont("s8 cGray")
     picker.AddText("w220 Center", "Right-click a profile to change password or remove")
