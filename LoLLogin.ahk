@@ -116,9 +116,7 @@ LaunchAndLogin(username, password) {
     }
     Sleep(LOGIN_DELAY_MS)
     try {
-        WinActivate(riotHwnd)
-        if !WinWaitActive(riotHwnd, , 5)
-            throw Error("Riot Client did not become active.")
+        riotHwnd := ActivateRiotLoginWindow()
         SendLoginCredentials(riotHwnd, username, password)
     } catch as err {
         detail := err is LoginInputError ? err.Message : "The Riot Client window could not be activated (" Type(err) ")."

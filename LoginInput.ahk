@@ -3,6 +3,27 @@
 class LoginInputError extends Error {
 }
 
+ActivateRiotLoginWindow() {
+    ; Riot can replace its initial splash HWND during the startup delay. Resolve
+    ; the current window now; retries are allowed only before credentials start.
+    Loop 3 {
+        hwnd := WinWait("ahk_group RiotLogin", , 2)
+        if !hwnd
+            throw LoginInputError("The Riot login window did not appear.")
+        try {
+            WinActivate(hwnd)
+            if WinWaitActive(hwnd, , 1)
+                return hwnd
+            if !WinExist(hwnd)
+                continue
+            throw LoginInputError("The Riot login window did not become active.")
+        } catch TargetError {
+            ; The splash/launcher was replaced between discovery and activation.
+        }
+    }
+    throw LoginInputError("Riot kept replacing its window during startup. Try again when the login screen is ready.")
+}
+
 SendLoginCredentials(riotHwnd, username, password) {
     ; The existing login flow assumes the username field starts focused.
     SendLoginInput(riotHwnd, "{Ctrl down}a{Ctrl up}", false, "clearing the username")
