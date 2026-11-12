@@ -120,8 +120,9 @@ LaunchAndLogin(username, password) {
         if !WinWaitActive(riotHwnd, , 5)
             throw Error("Riot Client did not become active.")
         SendLoginCredentials(riotHwnd, username, password)
-    } catch {
-        MsgBox("Auto-login stopped because Riot Client lost focus or could not receive input.`n`nSelect your profile again when the login screen is ready.", "LoL Login", "Icon!")
+    } catch as err {
+        detail := err is LoginInputError ? err.Message : "The Riot Client window could not be activated (" Type(err) ")."
+        MsgBox("Auto-login stopped.`n`n" detail "`n`nSelect your profile again when the login screen is ready.", "LoL Login", "Icon!")
         return
     }
 

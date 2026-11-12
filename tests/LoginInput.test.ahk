@@ -47,6 +47,14 @@ try {
     ExpectFailure(() => SendLoginInput(100, "dummy-password", true))
     Assert(state.sent.Length = 0, "target disappearing during send aborts without fallback")
 
+    ResetState()
+    state.failTextSend := true
+    try SendLoginInput(100, "dummy-secret", true, "entering the password")
+    catch as err {
+        Assert(err is LoginInputError, "failure uses a credential-safe error")
+        Assert(InStr(err.Message, "entering the password") && !InStr(err.Message, "dummy-secret"), "failure names the step without exposing the argument")
+    }
+
     FileAppend("PASS: " checks " assertions`n", "*")
     ExitApp(0)
 } catch as err {
@@ -85,6 +93,10 @@ WinActive(hwnd) {
     return result
 }
 
+WinExist(hwnd) {
+    return hwnd = 100 ? hwnd : 0
+}
+
 ControlGetFocus(hwnd) {
     global state
     Assert(hwnd = 100, "focus lookup is scoped to Riot")
@@ -108,7 +120,7 @@ ControlSend(value, target) {
 ControlSendText(value, target) {
     global state
     if state.failTextSend
-        throw TargetError("Dummy target disappeared")
+        throw TargetError("Dummy target disappeared: " value)
     state.sent.Push({value: value, target: target, text: true, active: state.active})
 }
 
