@@ -1,5 +1,6 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#Include LoginInput.ahk
 
 ; ============================================================================
 ; League of Legends profile picker + auto-login
@@ -108,24 +109,21 @@ LaunchAndLogin(username, password) {
 
     Run('"' RIOT_CLIENT '" ' LAUNCH_ARGS)
 
-    if !WinWait("ahk_group RiotLogin", , 60) {
+    riotHwnd := WinWait("ahk_group RiotLogin", , 60)
+    if !riotHwnd {
         MsgBox("Riot Client window didn't appear within 60s.", "LoL Login", "Icon!")
         return
     }
     Sleep(LOGIN_DELAY_MS)
-    WinActivate("ahk_group RiotLogin")
-    if !WinWaitActive("ahk_group RiotLogin", , 5)
+    try {
+        WinActivate(riotHwnd)
+        if !WinWaitActive(riotHwnd, , 5)
+            throw Error("Riot Client did not become active.")
+        SendLoginCredentials(riotHwnd, username, password)
+    } catch {
+        MsgBox("Auto-login stopped because Riot Client lost focus or could not receive input.`n`nSelect your profile again when the login screen is ready.", "LoL Login", "Icon!")
         return
-
-    ; Username field has focus when the login screen opens
-    Send("^a")
-    SendText(username)
-    Sleep(150)
-    Send("{Tab}")
-    Sleep(150)
-    SendText(password)
-    Sleep(150)
-    Send("{Enter}")
+    }
 
     CloseRiotClientWhenLeagueStarts()
 }
